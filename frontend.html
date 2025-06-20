@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Secure File Sharing - Minimal Frontend</title>
+  <style>
+    body { font-family: sans-serif; max-width: 600px; margin: 2em auto; }
+    input, button, select { margin: 0.5em 0; }
+    .section { border: 1px solid #ccc; padding: 1em; margin-bottom: 2em; }
+    .file-list { margin-top: 1em; }
+    .file-list li { margin-bottom: 0.5em; }
+    .success { color: green; }
+    .error { color: red; }
+    label { display: block; margin-top: 1em; }
+  </style>
+</head>
+<body>
+  <h1>Secure File Sharing (Minimal Frontend)</h1>
+  <script>
+    // Set your API base URL here
+    const API_BASE = "http://localhost:5001";
+
+    let token = "";
+    let userType = "";
+
+    function showMsg(msg, isError = false) {
+      const el = document.getElementById('msg');
+      el.textContent = msg;
+      el.className = isError ? 'error' : 'success';
+    }
+
+    // --- SIGNUP ---
+    async function signup() {
+      const email = document.getElementById('signup_email').value;
+      const password = document.getElementById('signup_password').value;
+      const name = document.getElementById('signup_name').value;
+      const res = await fetch(`${API_BASE}/api/auth/signup`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password, name })
+      });
+      const data = await res.json();
+      if (data.success) {
+        showMsg("Signup successful! Copy and open this verification URL: " + data.encrypted_url);
+      } else {
+        showMsg(data.message || "Signup failed", true);
+      }
+    }
+
+    // --- EMAIL VERIFY ---
+    async function verifyEmail() {
+      const url = document.getElementById('verify_url').value;
+      const res = await fetch(url);
+      const data = await res.json();
+      if (data.success) {
+        showMsg("Email verified! You can now log in.");
+      } else {
+        showMsg(data.message || "Verification failed", true);
+      }
+    }
+
+    // --- LOGIN ---
+    async function login() {
+      const email = document.getElementById('login_email').value;
+      const password = document.getElementById('login_password').value;
+      userType = document.getElementById('login_type').value;
+      const res = await fetch(`${API_BASE}/api/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password, user_type: userType })
+      });
+      const data = await res.json();
+      if (data.success) {
+        token = data.token;
+        showMsg("Login successful! Token stored.");
+      } else {
+        showMsg(data.message || "Login failed", true);
+      }
+    }
+
+    // --- UPLOAD (OPS ONLY) ---
+    async function uploadFile() {
+      const fileInput = document.getElementById('upload_file');
+      if (!fileInput.files.length) return showMsg("No file selected", true);
+      const formData = new FormData();
+      formData.append("file", fileInput.files[0]);
+      const res = await fetch(`${API_BASE}/api/files/upload`, {
+        method: "POST",
+        headers: { "Authorization": "Bearer " + token },
+        body: formData
+      });
+      const data = await res.json();
+      if (data.success) {
+        showMsg("File uploaded: " + data.file.name);
+      } else {
+        showMsg(data.message || "Upload failed", true);
+      }
+    }
+
+    // --- LIST FILES (CLIENT ONLY) ---
+    async function listFiles() {
+      const res = await fetch(`${API_BASE}/api/files`, {
+        headers: { "Authorization": "Bearer " + token }
+      });
+      const data = await res.json();
+      if (data.success) {
+        const ul = document.getElementById('file_list');
+        ul.innerHTML = "";
+        data.data.forEach(file => {
+          const li = document.createElement('li');
+          li.textContent = `${file.name} (${file.type}, ${file.size} bytes) [ID: ${file.id}]`;
+          ul.appendChild(li);
+        });
+        showMsg("Files listed below.");
+      } else {
+        showMsg(data.message || "Failed to list files", true);
+      }
+    }
+
+    // --- GET DOWNLOAD LINK (CLIENT ONLY) ---
+    async function getDownloadLink() {
+      const fileId = document.getElementById('download_file_id').value;
+      const res = await fetch(`${API_BASE}/api/files/download/${fileId}`, {
+        headers: { "Authorization": "Bearer " + token }
+      });
+      const data = await res.json();
+      if (data.success) {
+        document.getElementById('download_link').value = data.data.download_url;
+        showMsg("Download link generated!");
+      } else {
+        showMsg(data.message || "Failed to get download link", true);
+      }
+    }
+
+    // --- DOWNLOAD FILE (CLIENT ONLY) ---
+    async function downloadFile() {
+      const url = document.getElementById('download_link').value;
+      if (!url) return showMsg("No download link", true);
+
+      const res = await fetch(url, {
+        headers: { "Authorization": "Bearer " + token }
+      });
+
+      if (!res.ok) {
+        showMsg("Download failed: " + (await res.text()), true);
+        return;
+      }
+
+      const blob = await res.blob();
+      const contentDisposition = res.headers.get("Content-Disposition");
+      let filename = "downloaded_file";
+      if (contentDisposition) {
+        const match = contentDisposition.match(/filename=\"?([^\";]+)\"?/);
+        if (match) filename = match[1];
+      }
+      const link = document.createElement('a');
+      link.href = window.URL.createObjectURL(blob);
+      link.download = filename;
+      link.click();
+      showMsg("Download started!");
+    }
+  </script>
+
+  <div id="msg"></div>
+
+  <div class="section">
+    <h2>1. Sign Up (Client)</h2>
+    <label>Email: <input id="signup_email" type="email"></label>
+    <label>Password: <input id="signup_password" type="password"></label>
+    <label>Name: <input id="signup_name" type="text"></label>
+    <button onclick="signup()">Sign Up</button>
+  </div>
+
+  <div class="section">
+    <h2>2. Verify Email</h2>
+    <label>Paste verification URL: <input id="verify_url" type="text" size="60"></label>
+    <button onclick="verifyEmail()">Verify</button>
+  </div>
+
+  <div class="section">
+    <h2>3. Login</h2>
+    <label>Email: <input id="login_email" type="email"></label>
+    <label>Password: <input id="login_password" type="password"></label>
+    <label>User Type:
+      <select id="login_type">
+        <option value="client">Client</option>
+        <option value="ops">Ops</option>
+      </select>
+    </label>
+    <button onclick="login()">Login</button>
+  </div>
+
+  <div class="section">
+    <h2>4. Upload File (Ops Only)</h2>
+    <input id="upload_file" type="file">
+    <button onclick="uploadFile()">Upload</button>
+  </div>
+
+  <div class="section">
+    <h2>5. List Files (Client Only)</h2>
+    <button onclick="listFiles()">List Files</button>
+    <ul id="file_list" class="file-list"></ul>
+  </div>
+
+  <div class="section">
+    <h2>6. Get Download Link (Client Only)</h2>
+    <label>File ID: <input id="download_file_id" type="number"></label>
+    <button onclick="getDownloadLink()">Get Link</button>
+    <input id="download_link" type="text" size="60" readonly>
+    <button onclick="downloadFile()">Download</button>
+  </div>
+</body>
+</html> 
